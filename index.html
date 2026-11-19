@@ -299,7 +299,7 @@ setInterval(()=>{ if(pending.length && navigator.onLine) flush(); }, 30000);
 function logout(msg){ token=""; ls.set("skh-token",""); $("app").hidden=true; $("fab").hidden=true; $("login").hidden=false; if(msg){ $("loginErr").textContent=msg; $("loginErr").hidden=false; } }
 $("loginForm").addEventListener("submit", async e=>{
   e.preventDefault();
-  const code=$("code").value.trim(); if(!code) return;
+  const code=$("code").value.normalize("NFC").toLowerCase().replace(/[\s\u200b]/g,""); if(!code) return;
   $("loginBtn").disabled=true; $("loginBtn").textContent="Đang mở…"; $("loginErr").hidden=true;
   token=code;
   try{ await api("GET"); ls.set("skh-token",token); start(); }
