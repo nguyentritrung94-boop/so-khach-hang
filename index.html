@@ -197,6 +197,16 @@ form.edit{display:flex;flex-direction:column;gap:12px}
 .lv-box:focus-within{border-color:var(--accent);outline:2px solid var(--accent-soft)}
 .lv-box input{flex:1;min-width:0;border:0;background:none;padding:11px 0;font-size:18px;font-weight:700;font-variant-numeric:tabular-nums;outline:none;-webkit-appearance:none}
 .lv-box span{font-size:14px;color:var(--muted);font-weight:500;margin-left:6px;white-space:nowrap}
+.lv-sched{border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.lv-sched-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;background:var(--bg)}
+.lv-sched-head b{font-size:14px}
+.lv-sched table{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums;table-layout:fixed}
+.lv-sched th{font-weight:600;color:var(--muted);text-align:right;padding:6px 8px;font-size:12px}
+.lv-sched td{text-align:right;padding:6px 8px;border-top:1px solid var(--line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lv-sched th:first-child,.lv-sched td:first-child{text-align:left;width:58px}
+.lv-sched td.pay{font-weight:700}
+.lv-sched tr.promo-end td{border-top:2px solid var(--due)}
+.lv-sched tfoot td{font-weight:700;background:var(--bg)}
 .lv-msg{background:var(--bg);border-radius:12px;padding:12px;font-size:14px;white-space:pre-line;line-height:1.55}
 /* thống kê */
 .stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
@@ -664,14 +674,15 @@ const vn = (x,d=1) => (+x).toFixed(d).replace(/\.?0+$/,"").replace(".",",");
 const money = v => { const m=v/1e6; return m>=1000 ? vn(m/1000, m>=10000?1:2)+" tỷ" : Math.round(m).toLocaleString("vi-VN")+" tr"; };
 function loanCalc(){
   const P=L.price*1e9*L.ltv/100, n=L.yrs*12, r1=L.r1/1200, r2=L.r2/1200, m1=L.m1, g=Math.min(L.g,n-1);
-  let bal=P, totI=0, first=0, after=0, ann=0, lastR=null;
+  let bal=P, totI=0, first=0, after=0, ann=0, lastR=null; const sched=[];
   for(let k=0;k<n;k++){
     const r=k<m1?r1:r2, it=bal*r; let pr=0;
     if(k>=g){ if(L.method==="dec") pr=P/(n-g); else { if(r!==lastR||k===g){ const left=n-k; ann = r===0 ? bal/left : bal*r/(1-Math.pow(1+r,-left)); lastR=r; } pr=ann-it; } }
     pr=Math.min(pr,bal); const pay=pr+it; if(k===0) first=pay; if(k===m1) after=pay; totI+=it; bal-=pr;
+    sched.push({m:k+1, pr, it, pay, bal:Math.max(0,bal)});
   }
   if(m1===0||m1>=n) after=first;
-  return {P, own:L.price*1e9-P, first, after, totI, inc:Math.max(first,after)/0.5};
+  return {P, own:L.price*1e9-P, first, after, totI, inc:Math.max(first,after)/0.5, sched, n};
 }
 function loanText(c){
   const x=loanCalc(), way=L.method==="dec"?"tính lãi theo dư nợ giảm dần":"trả đều hằng tháng";
@@ -693,7 +704,7 @@ const LOAN_FIELDS=[
 const LIMITS={price:[0,1000],ltv:[0,100],yrs:[1,40],r1:[0,30],m1:[0,480],r2:[0,30],g:[0,480]};
 const numIn = s => { const v=parseFloat(String(s).replace(/\s/g,"").replace(",",".")); return isFinite(v)?v:0; };
 function openLoan(id){
-  stopMic(); loanFor=id||null; mode="loan"; openSheet();
+  stopMic(); loanFor=id||null; mode="loan"; loanYear=1; openSheet();
   const c=id?customers[id]:null; const b=c&&budgetRange(c.budget); L.price = b ? b[1] : (L.price>0 ? L.price : LOAN_DEF.price);
   $("sheetBody").innerHTML=`
     <div class="sh-head"><h2>Tính khoản vay${c?`<br><span style="font-size:14px;font-weight:500;color:var(--muted)">${esc(c.name)}</span>`:""}</h2><button class="x" type="button" data-act="${c?"loanback":"close"}" aria-label="Đóng">×</button></div>
@@ -703,6 +714,7 @@ function openLoan(id){
     <div class="lv-grid">${LOAN_FIELDS.map(f=>`<div class="lv-row${f.wide?" wide":""}"><label for="lv-${f.k}">${f.t}</label>
       <div class="lv-box"><input id="lv-${f.k}" data-lv="${f.k}" type="text" inputmode="${f.dec?"decimal":"numeric"}" autocomplete="off" value="${vn(L[f.k],2)}"><span>${f.u}</span></div></div>`).join("")}</div>
     <div class="stats-grid" id="lvRes"></div>
+    <div class="lv-sched" id="lvSched"></div>
     <div><span class="label">Tin nhắn gửi khách</span><div class="lv-msg" id="lvMsg" style="margin-top:6px"></div></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn primary" type="button" data-act="loancopy">Chép tin nhắn</button>
@@ -716,7 +728,32 @@ function loanUpdate(){
   $("lvRes").innerHTML=[["Vốn tự có",money(x.own)],["Số tiền vay",money(x.P)],["Tháng đầu trả",money(x.first)],["Tháng đầu sau ưu đãi",money(x.after)],["Tổng lãi cả kỳ",money(x.totI)],["Thu nhập nên có",money(x.inc)+"/th"]]
     .map(([k,v])=>`<div class="stat"><div class="v" style="font-size:21px">${v}</div><div class="k">${k}</div></div>`).join("");
   $("lvMsg").textContent=loanText(c);
+  renderSched(x);
   const {price, ...keep}=L; ls.set("skh-loan",keep);
+}
+let loanYear=1;
+const trv = v => { const m=v/1e6; return m>=1000 ? vn(m/1000,2)+" tỷ" : vn(m,1)+" tr"; };
+function yearRows(x){ const a=(loanYear-1)*12; return x.sched.slice(a, a+12); }
+function renderSched(x){
+  const years=Math.max(1,Math.ceil(x.n/12)); loanYear=Math.min(Math.max(1,loanYear),years);
+  const rows=yearRows(x); if(!rows.length){ $("lvSched").innerHTML=""; return; }
+  const sum=k=>rows.reduce((s,r)=>s+r[k],0);
+  $("lvSched").innerHTML=`
+    <div class="lv-sched-head"><button class="btn small" type="button" data-act="lyprev" ${loanYear<=1?"disabled":""} aria-label="Năm trước">‹</button>
+      <b>Năm ${loanYear} · tháng ${rows[0].m}–${rows[rows.length-1].m}</b>
+      <button class="btn small" type="button" data-act="lynext" ${loanYear>=years?"disabled":""} aria-label="Năm sau">›</button></div>
+    <table><thead><tr><th>Tháng</th><th>Gốc</th><th>Lãi</th><th>Phải trả</th><th>Còn nợ</th></tr></thead>
+    <tbody>${rows.map(r=>`<tr class="${r.m===L.m1+1&&L.m1>0?"promo-end":""}"><td>${r.m}</td><td>${trv(r.pr)}</td><td>${trv(r.it)}</td><td class="pay">${trv(r.pay)}</td><td>${trv(r.bal)}</td></tr>`).join("")}</tbody>
+    <tfoot><tr><td>Cộng</td><td>${trv(sum("pr"))}</td><td>${trv(sum("it"))}</td><td>${trv(sum("pay"))}</td><td></td></tr></tfoot></table>
+    <div style="display:flex;gap:8px;justify-content:space-between;align-items:center;padding:8px 10px;background:var(--bg)">
+      <span style="font-size:12px;color:var(--muted)">${L.m1>0&&L.m1<x.n?`Vạch cam: tháng ${L.m1+1} bắt đầu lãi ${vn(L.r2)}%`:""}</span>
+      <button class="btn small" type="button" data-act="schedcopy">Chép bảng</button></div>`;
+}
+function schedText(x){
+  const rows=yearRows(x), c=loanFor?customers[loanFor]:null;
+  return `${c?c.name+" – ":""}Số tiền trả năm ${loanYear} (vay ${trv(x.P)}, ${L.yrs} năm):\n`+
+    rows.map(r=>`Tháng ${r.m}: ${trv(r.pay)} (gốc ${trv(r.pr)} + lãi ${trv(r.it)})`).join("\n")+
+    `\nCộng ${rows.length} tháng: ${trv(rows.reduce((s,r)=>s+r.pay,0))}\nSố liệu tham khảo, ngân hàng sẽ báo chính xác khi duyệt hồ sơ.`;
 }
 
 function openCustomer(id){ stopMic(); openId=id; mode="view"; confirmDel=false; renderDetail.last=null; openSheet(); renderDetail(); $("sheet").scrollTop=0; }
@@ -825,6 +862,13 @@ $("sheetBody").addEventListener("click", async e=>{
   else if(act==="loan") openLoan(openId);
   else if(act==="loanback"){ const id=loanFor; loanFor=null; openCustomer(id); }
   else if(act==="loanreset"){ const p=L.price; L={...LOAN_DEF, price:p}; openLoan(loanFor); }
+  else if(act==="lyprev"){ loanYear--; renderSched(loanCalc()); }
+  else if(act==="lynext"){ loanYear++; renderSched(loanCalc()); }
+  else if(act==="schedcopy"){
+    const t=schedText(loanCalc());
+    try{ await navigator.clipboard.writeText(t); toast("Đã chép bảng, mở Zalo để dán"); }
+    catch(err){ toast("Máy chưa cho chép tự động, anh thử lại"); }
+  }
   else if(act==="loancopy"){
     const t=$("lvMsg").textContent;
     try{ await navigator.clipboard.writeText(t); toast("Đã chép tin nhắn, mở Zalo để dán"); }
