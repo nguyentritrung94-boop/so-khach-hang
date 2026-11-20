@@ -322,7 +322,8 @@ $("toastAct").addEventListener("click", ()=>{ const f=toastUndo; toastUndo=null;
 function toSheet(c, id){
   return { id, name:c.name||"", phone:c.phone||"", status:stName(c.status), projects:tagsOf(c).join(", "),
     need:c.need||"", company:c.company||"", address:c.address||"", nextFollow:fmtDate(c.nextFollow),
-    notes:(c.notes||[]).map(n=>(n.t?stamp(n.t)+" | ":"")+String(n.text).replace(/\s*\n\s*/g," ")).join("\n"),
+    // trên sheet: ghi chú cũ ở trên, mới ở dưới
+    notes:(c.notes||[]).map((n,i)=>({...n,i})).sort((a,b)=>(a.t||0)-(b.t||0) || b.i-a.i).map(n=>(n.t?stamp(n.t)+" | ":"")+String(n.text).replace(/\s*\n\s*/g," ")).join("\n"),
     updated: stamp(c.updatedAt||Date.now()),
     heat: heatOf(c.heat) ? heatOf(c.heat).t : "", budget:c.budget||"", ptypes:typesOf(c).join(", "), payment:c.payment||"",
     created: c.createdAt ? stamp(c.createdAt) : "" };
@@ -340,7 +341,8 @@ function parseNotes(txt){
     else if(out.length) out[out.length-1].text += "\n"+l;
     else out.push({t:0,text:l});
   });
-  return out;
+  // trong app: mới nhất lên đầu (sheet viết theo thứ tự nào cũng được)
+  return out.map((n,i)=>({...n,i})).sort((a,b)=>(b.t||0)-(a.t||0) || b.i-a.i).map(({i,...n})=>n);
 }
 const splitList = s => String(s||"").split(/[,;]/).map(x=>x.trim()).filter(Boolean);
 function fromSheet(r){
