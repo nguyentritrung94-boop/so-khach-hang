@@ -55,6 +55,7 @@ header{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var
 h1{margin:0;font-size:21px;font-weight:700;letter-spacing:-.01em;white-space:nowrap}
 .top-right{display:flex;align-items:center;gap:6px}
 .count{color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums}
+@media (max-width:430px){.count{display:none} h1{font-size:19px}}
 .icon-btn{border:1px solid var(--line);background:var(--surface);border-radius:10px;width:36px;height:36px;display:grid;place-items:center;font-size:16px;line-height:1;position:relative;flex:none}
 .icon-btn .dot{position:absolute;top:-4px;right:-4px;min-width:16px;height:16px;border-radius:8px;background:var(--accent);color:var(--accent-ink);font-size:10px;font-weight:700;display:grid;place-items:center;padding:0 4px}
 .icon-btn.spin span{display:inline-block;animation:spin 1s linear infinite}
@@ -187,6 +188,12 @@ form.edit{display:flex;flex-direction:column;gap:12px}
 .dchips button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 @media (prefers-reduced-motion:reduce){.drawer{transition:none}}
 
+/* máy tính khoản vay */
+.lv-row{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center}
+.lv-row label{font-size:14px;color:var(--muted)}
+.lv-row output{font-size:15px;font-weight:700;font-variant-numeric:tabular-nums}
+.lv-row input{grid-column:1/-1;width:100%;accent-color:var(--accent);height:28px}
+.lv-msg{background:var(--bg);border-radius:12px;padding:12px;font-size:14px;white-space:pre-line;line-height:1.55}
 /* thống kê */
 .stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .stat{background:var(--bg);border-radius:12px;padding:12px}
@@ -226,6 +233,7 @@ form.edit{display:flex;flex-direction:column;gap:12px}
     <div class="top">
       <div class="title-wrap"><button class="icon-btn" id="menuBtn" type="button" aria-label="Lọc và sắp xếp"><span>☰</span><span class="dot" id="filterDot" hidden></span></button><h1>Sổ Khách Hàng</h1></div>
       <div class="top-right"><span class="count" id="count"></span>
+        <button class="icon-btn" id="loanBtn" type="button" aria-label="Tính khoản vay"><span>🧮</span></button>
         <button class="icon-btn" id="statsBtn" type="button" aria-label="Thống kê"><span>📊</span></button>
         <button class="icon-btn" id="refresh" type="button" aria-label="Tải lại từ Google Sheet"><span>⟳</span></button></div>
     </div>
@@ -558,6 +566,7 @@ function renderDetail(){
       ${(c.notes||[]).length?`<div class="timeline">${c.notes.map((n,i)=>`<div class="note"><time>${fmtTime(n.t)||"Không rõ ngày"}</time><button class="del" type="button" data-delnote="${i}" aria-label="Xoá ghi chú">Xoá</button><p>${esc(n.text)}</p></div>`).join("")}</div>`:`<span style="color:var(--muted);font-size:14px">Chưa có ghi chú nào.</span>`}
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn" type="button" data-act="loan">🧮 Tính khoản vay</button>
       <button class="btn" type="button" data-act="edit">Sửa thông tin</button>
       <button class="btn danger" type="button" data-act="askdel">Xoá khách</button>
     </div>
@@ -644,6 +653,67 @@ function renderStats(){
     <div style="display:flex;flex-direction:column;gap:8px"><span class="label">Theo tài chính</span>${bars(BUDGETS.map(b=>({t:b.t,n:all.filter(c=>passBudget(c,b.k)).length})))}</div>
     ${tags.length?`<div style="display:flex;flex-direction:column;gap:8px"><span class="label">Theo dự án</span>${bars(tags.map(t=>({t:"#"+t.t,n:t.n})))}</div>`:""}`;
 }
+/* ========= máy tính khoản vay ========= */
+const LOAN_DEF={price:20, ltv:50, yrs:25, r1:6.5, m1:24, r2:10.5, g:0, method:"dec"};
+let L={...LOAN_DEF, ...(ls.get("skh-loan",{})||{})}, loanFor=null;
+const vn = (x,d=1) => (+x).toFixed(d).replace(/\.?0+$/,"").replace(".",",");
+const money = v => { const m=v/1e6; return m>=1000 ? vn(m/1000, m>=10000?1:2)+" tỷ" : Math.round(m).toLocaleString("vi-VN")+" tr"; };
+function loanCalc(){
+  const P=L.price*1e9*L.ltv/100, n=L.yrs*12, r1=L.r1/1200, r2=L.r2/1200, m1=L.m1, g=Math.min(L.g,n-1);
+  let bal=P, totI=0, first=0, after=0, ann=0, lastR=null;
+  for(let k=0;k<n;k++){
+    const r=k<m1?r1:r2, it=bal*r; let pr=0;
+    if(k>=g){ if(L.method==="dec") pr=P/(n-g); else { if(r!==lastR||k===g){ const left=n-k; ann = r===0 ? bal/left : bal*r/(1-Math.pow(1+r,-left)); lastR=r; } pr=ann-it; } }
+    pr=Math.min(pr,bal); const pay=pr+it; if(k===0) first=pay; if(k===m1) after=pay; totI+=it; bal-=pr;
+  }
+  if(m1===0||m1>=n) after=first;
+  return {P, own:L.price*1e9-P, first, after, totI, inc:Math.max(first,after)/0.5};
+}
+function loanText(c){
+  const x=loanCalc(), way=L.method==="dec"?"dư nợ giảm dần":"trả đều hằng tháng";
+  const who = c ? (c.name+": c") : "C";
+  return `${who}ăn giá ${vn(L.price)} tỷ, chuẩn bị vốn ${money(x.own)}, vay ${L.ltv}% (${money(x.P)}) trong ${L.yrs} năm, trả ${way}.\n`+
+    `• Tháng đầu: khoảng ${money(x.first)}\n`+
+    (L.m1 ? `• ${L.m1} tháng đầu lãi ${vn(L.r1)}%, sau đó ${vn(L.r2)}%: tháng đầu sau ưu đãi khoảng ${money(x.after)}\n` : `• Lãi suất ${vn(L.r2)}%/năm\n`)+
+    (L.g ? `• Ân hạn gốc ${L.g} tháng đầu (chỉ trả lãi)\n` : "")+
+    `Số liệu tham khảo, ngân hàng sẽ báo chính xác khi duyệt hồ sơ.`;
+}
+const LOAN_FIELDS=[
+  {k:"price",t:"Giá căn",min:3,max:80,step:0.5,f:v=>vn(v)+" tỷ"},
+  {k:"ltv",t:"Vay ngân hàng",min:0,max:80,step:5,f:v=>v+"%"},
+  {k:"yrs",t:"Thời hạn vay",min:5,max:35,step:1,f:v=>v+" năm"},
+  {k:"r1",t:"Lãi ưu đãi (%/năm)",min:0,max:12,step:0.1,f:v=>vn(v)+"%"},
+  {k:"m1",t:"Thời gian ưu đãi",min:0,max:60,step:6,f:v=>v+" tháng"},
+  {k:"r2",t:"Lãi sau ưu đãi (%/năm)",min:5,max:16,step:0.1,f:v=>vn(v)+"%"},
+  {k:"g",t:"Ân hạn gốc",min:0,max:36,step:6,f:v=>v+" tháng"}];
+function openLoan(id){
+  stopMic(); loanFor=id||null; mode="loan"; openSheet();
+  const c=id?customers[id]:null; const b=c&&budgetRange(c.budget); if(b) L.price=Math.min(80,Math.max(3,b[1]));
+  $("sheetBody").innerHTML=`
+    <div class="sh-head"><h2>Tính khoản vay${c?`<br><span style="font-size:14px;font-weight:500;color:var(--muted)">${esc(c.name)}</span>`:""}</h2><button class="x" type="button" data-act="${c?"loanback":"close"}" aria-label="Đóng">×</button></div>
+    <div class="seg" style="grid-template-columns:1fr 1fr" role="group" aria-label="Cách trả">
+      <button type="button" class="none" data-lmethod="dec" aria-pressed="${L.method==="dec"}">Dư nợ giảm dần</button>
+      <button type="button" class="none" data-lmethod="eq" aria-pressed="${L.method==="eq"}">Trả đều hằng tháng</button></div>
+    ${LOAN_FIELDS.map(f=>`<div class="lv-row"><label for="lv-${f.k}">${f.t}</label><output id="lvo-${f.k}">${f.f(L[f.k])}</output>
+      <input type="range" id="lv-${f.k}" data-lv="${f.k}" min="${f.min}" max="${f.max}" step="${f.step}" value="${L[f.k]}"></div>`).join("")}
+    <div class="stats-grid" id="lvRes"></div>
+    <div><span class="label">Tin nhắn gửi khách</span><div class="lv-msg" id="lvMsg" style="margin-top:6px"></div></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn primary" type="button" data-act="loancopy">Chép tin nhắn</button>
+      ${c?`<button class="btn" type="button" data-act="loansave">Lưu vào nhật ký khách</button>`:""}
+      <button class="btn" type="button" data-act="loanreset">Đặt lại</button></div>
+    <p style="margin:0;font-size:12.5px;color:var(--muted)">“Thu nhập nên có” tính theo mức trả nợ không quá 50% thu nhập. Kết quả chỉ để tư vấn nhanh.</p>`;
+  loanUpdate(); $("sheet").scrollTop=0;
+}
+function loanUpdate(){
+  const x=loanCalc(); const c=loanFor?customers[loanFor]:null;
+  $("lvRes").innerHTML=[["Vốn tự có",money(x.own)],["Số tiền vay",money(x.P)],["Tháng đầu trả",money(x.first)],["Tháng đầu sau ưu đãi",money(x.after)],["Tổng lãi cả kỳ",money(x.totI)],["Thu nhập nên có",money(x.inc)+"/th"]]
+    .map(([k,v])=>`<div class="stat"><div class="v" style="font-size:21px">${v}</div><div class="k">${k}</div></div>`).join("");
+  $("lvMsg").textContent=loanText(c);
+  LOAN_FIELDS.forEach(f=>{ const o=$("lvo-"+f.k); if(o) o.textContent=f.f(L[f.k]); });
+  ls.set("skh-loan",{...L, price:undefined});
+}
+
 function openCustomer(id){ stopMic(); openId=id; mode="view"; confirmDel=false; renderDetail.last=null; openSheet(); renderDetail(); $("sheet").scrollTop=0; }
 function openNew(prefill){ stopMic(); openId=null; mode="new"; openSheet(); renderForm(prefill); $("sheet").scrollTop=0; if(!prefill) setTimeout(()=>$("f-phone")&&$("f-phone").focus(),60); else setTimeout(()=>$("f-name")&&$("f-name").focus(),60); }
 
@@ -704,7 +774,11 @@ document.addEventListener("keydown", e=>{ if(e.key==="Escape"){ if(!$("sheet").h
 })();
 
 $("sheetBody").addEventListener("keydown", e=>{ if(e.target.id==="f-tag" && e.key==="Enter"){ e.preventDefault(); addTagFromInput(); } });
-$("sheetBody").addEventListener("input", e=>{ if(e.target.id==="f-phone") checkDup(); });
+$("sheetBody").addEventListener("input", e=>{
+  if(e.target.id==="f-phone") checkDup();
+  const lv=e.target.dataset && e.target.dataset.lv; if(lv){ L[lv]=+e.target.value; loanUpdate(); }
+});
+$("loanBtn").addEventListener("click", ()=>openLoan(null));
 $("sheetBody").addEventListener("change", e=>{
   if(e.target.id==="followIn" && openId){ const v=e.target.value; patch(openId,c=>{ c.nextFollow=v; }); toast(v?`Đã hẹn gọi lại ${fmtDate(v)}`:"Đã bỏ hẹn"); }
 });
@@ -723,6 +797,8 @@ $("sheetBody").addEventListener("click", async e=>{
     return; // để link tự mở trình gọi / Zalo
   }
   if(e.target.closest('[data-act="addtag"]')){ addTagFromInput(); return; }
+  const lm=e.target.closest("[data-lmethod]");
+  if(lm){ L.method=lm.dataset.lmethod; document.querySelectorAll("[data-lmethod]").forEach(x=>x.setAttribute("aria-pressed", x===lm)); loanUpdate(); return; }
   const ht=e.target.closest("[data-heat]");
   if(ht && openId){ const v=ht.dataset.heat; patch(openId,c=>{ c.heat=v; }); toast(v?`Đã đánh dấu ${heatOf(v).i} ${heatOf(v).t}`:"Đã bỏ đánh giá"); return; }
   const fl=e.target.closest("[data-follow]");
@@ -740,6 +816,20 @@ $("sheetBody").addEventListener("click", async e=>{
   else if(act==="nodel"){ confirmDel=false; renderDetail.last=null; renderDetail(); }
   else if(act==="del"){ const name=c.name; store.remove(openId); closeSheet(); toast(`Đã xoá ${name}`); }
   else if(act==="mic") startMic();
+  else if(act==="loan") openLoan(openId);
+  else if(act==="loanback"){ const id=loanFor; loanFor=null; openCustomer(id); }
+  else if(act==="loanreset"){ const p=L.price; L={...LOAN_DEF, price:p}; openLoan(loanFor); }
+  else if(act==="loancopy"){
+    const t=$("lvMsg").textContent;
+    try{ await navigator.clipboard.writeText(t); toast("Đã chép tin nhắn, mở Zalo để dán"); }
+    catch(err){ const r=document.createRange(); r.selectNodeContents($("lvMsg")); const s=getSelection(); s.removeAllRanges(); s.addRange(r); toast("Đã chọn, bấm giữ để sao chép"); }
+  }
+  else if(act==="loansave" && loanFor){
+    const x=loanCalc(), id=loanFor;
+    const text=`🧮 Tính vay: căn ${vn(L.price)} tỷ, vay ${L.ltv}% ${L.yrs} năm (${L.method==="dec"?"dư nợ giảm dần":"trả đều"}), tháng đầu ~${money(x.first)}, sau ưu đãi ~${money(x.after)}`;
+    patch(id,c=>{ c.notes=c.notes||[]; c.notes.unshift({t:Date.now(),text}); });
+    toast("Đã lưu vào nhật ký khách");
+  }
   else if(act==="pickdate"){ const i=$("followIn"); try{ i.showPicker(); }catch(err){ i.style.pointerEvents="auto"; i.focus(); i.click(); } }
   else if(act==="paste"){
     try{ const t=await navigator.clipboard.readText(); const d=digits(t); if(d.length>=9){ $("f-phone").value=d; checkDup(); $("f-name").focus(); } else toast("Bộ nhớ tạm không có số điện thoại"); }
