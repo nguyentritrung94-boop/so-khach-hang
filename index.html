@@ -62,6 +62,21 @@ h1{margin:0;font-size:22px;font-weight:700;letter-spacing:-.01em}
 .chip[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
 .chips.tags .chip{border-style:dashed}
 .chips.tags .chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);border-style:solid}
+.title-wrap{display:flex;align-items:center;gap:10px;min-width:0}
+.tag-active{display:flex;align-items:center;gap:8px;font-size:13.5px;color:var(--muted)}
+.tag-active button{border:1px solid var(--accent);background:var(--accent-soft);color:var(--accent);border-radius:999px;padding:5px 10px 5px 12px;font-size:13.5px;font-weight:600;display:inline-flex;gap:6px;align-items:center}
+.drawer{position:fixed;top:0;bottom:0;left:0;z-index:25;width:min(82vw,320px);background:var(--surface);box-shadow:var(--shadow);display:flex;flex-direction:column;gap:12px;
+  padding-top:calc(16px + env(safe-area-inset-top,0px));padding-bottom:calc(16px + env(safe-area-inset-bottom,0px));padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:16px;
+  transform:translateX(-105%);transition:transform .22s ease-out;overflow-y:auto}
+.drawer.open{transform:none}
+#drawerScrim{z-index:24}
+.drawer-head{display:flex;align-items:center;justify-content:space-between}
+.drawer-list{display:flex;flex-direction:column;gap:4px}
+.drawer-list button{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;text-align:left;border:0;background:none;border-radius:10px;padding:12px;font-size:15px;font-weight:500}
+.drawer-list button[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.drawer-list .n{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.drawer-hint{margin:auto 0 0;font-size:12.5px;color:var(--muted)}
+@media (prefers-reduced-motion:reduce){.drawer{transition:none}}
 .tag{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:500;border-radius:6px;padding:1px 7px;background:var(--accent-soft);color:var(--accent);white-space:nowrap}
 .tag::before{content:"#";opacity:.6}
 .tagline{display:flex;gap:4px;flex-wrap:nowrap;overflow:hidden;margin-top:2px}
@@ -164,17 +179,23 @@ form.edit{display:flex;flex-direction:column;gap:12px}
 
 <div class="wrap" id="app" hidden>
   <header>
-    <div class="top"><h1>Sổ Khách Hàng</h1>
+    <div class="top"><div class="title-wrap"><button class="icon-btn" id="menuBtn" type="button" aria-label="Chọn dự án"><span>☰</span></button><h1>Sổ Khách Hàng</h1></div>
       <div class="top-right"><span class="count" id="count"></span><button class="icon-btn" id="refresh" type="button" aria-label="Tải lại từ Google Sheet"><span>⟳</span></button></div></div>
     <input id="q" class="search" type="search" placeholder="Tìm tên, số điện thoại, ghi chú…" autocomplete="off">
     <div class="chips" id="chips" role="group" aria-label="Lọc theo trạng thái"></div>
-    <div class="chips tags" id="tagChips" role="group" aria-label="Lọc theo dự án" hidden></div>
+    <div id="tagActive" class="tag-active" hidden></div>
   </header>
   <div id="notice" class="notice" hidden></div>
   <button id="due" class="due-strip" type="button" hidden></button>
   <div id="list"></div>
 </div>
 <button class="fab" id="fab" type="button" hidden>+ Khách mới</button>
+<div id="drawerScrim" class="scrim" hidden></div>
+<nav id="drawer" class="drawer" aria-label="Chọn dự án" hidden>
+  <div class="drawer-head"><span class="label">Dự án</span><button class="x" type="button" id="drawerClose" aria-label="Đóng">×</button></div>
+  <div id="drawerList" class="drawer-list"></div>
+  <p class="drawer-hint">Thêm dự án mới trong mục “Sửa thông tin” của khách, hoặc gõ vào cột Dự án trên Google Sheet.</p>
+</nav>
 <div id="scrim" class="scrim" hidden></div>
 <div id="sheet" class="sheet" role="dialog" aria-modal="true" hidden><div class="grab"></div><div id="sheetBody" class="sheet-inner"></div></div>
 <div id="toast" class="toast" hidden></div>
@@ -320,10 +341,15 @@ function renderChips(){
   $("chips").innerHTML = items.map(i=>`<button class="chip" type="button" data-f="${i.k}" aria-pressed="${filter===i.k}">${esc(i.t)} · ${i.n}</button>`).join("");
   const tags=allTags();
   if(tagFilter && !tags.some(x=>norm(x.t)===norm(tagFilter))) tagFilter="";
-  const tc=$("tagChips"); tc.hidden=tags.length<2 && !tagFilter;
-  tc.innerHTML = `<button class="chip" type="button" data-tag="" aria-pressed="${!tagFilter}">Mọi dự án</button>` +
-    tags.map(x=>`<button class="chip" type="button" data-tag="${esc(x.t)}" aria-pressed="${norm(tagFilter)===norm(x.t)}">#${esc(x.t)} · ${x.n}</button>`).join("");
+  const total=Object.keys(customers).length;
+  $("drawerList").innerHTML = `<button type="button" data-tag="" aria-pressed="${!tagFilter}"><span>Tất cả dự án</span><span class="n">${total}</span></button>` +
+    tags.map(x=>`<button type="button" data-tag="${esc(x.t)}" aria-pressed="${norm(tagFilter)===norm(x.t)}"><span>#${esc(x.t)}</span><span class="n">${x.n}</span></button>`).join("");
+  const ta=$("tagActive"); ta.hidden=!tagFilter;
+  ta.innerHTML = tagFilter ? `Đang xem dự án <button type="button" id="tagClear" aria-label="Bỏ lọc dự án">#${esc(tagFilter)} <span aria-hidden="true">×</span></button>` : "";
 }
+/* ngăn chọn dự án bên trái */
+function openDrawer(){ renderChips(); $("drawer").hidden=false; $("drawerScrim").hidden=false; requestAnimationFrame(()=>$("drawer").classList.add("open")); }
+function closeDrawer(){ const d=$("drawer"); d.classList.remove("open"); $("drawerScrim").hidden=true; setTimeout(()=>{ if(!d.classList.contains("open")) d.hidden=true; },230); }
 function render(){
   renderChips();
   const all=Object.entries(customers).map(([id,c])=>({id,...c}));
@@ -442,7 +468,25 @@ function openCustomer(id){ openId=id; mode="view"; confirmDel=false; renderDetai
 /* ========= sự kiện ========= */
 $("q").addEventListener("input", e=>{ query=e.target.value; render(); });
 $("chips").addEventListener("click", e=>{ const b=e.target.closest("[data-f]"); if(b){ filter=b.dataset.f; render(); } });
-$("tagChips").addEventListener("click", e=>{ const b=e.target.closest("[data-tag]"); if(b){ tagFilter=b.dataset.tag; render(); } });
+$("drawerList").addEventListener("click", e=>{ const b=e.target.closest("[data-tag]"); if(b){ tagFilter=b.dataset.tag; render(); closeDrawer(); } });
+$("tagActive").addEventListener("click", e=>{ if(e.target.closest("#tagClear")){ tagFilter=""; render(); } });
+$("menuBtn").addEventListener("click", openDrawer);
+$("drawerClose").addEventListener("click", closeDrawer);
+$("drawerScrim").addEventListener("click", closeDrawer);
+(()=>{ // vuốt từ mép trái để mở, vuốt sang trái để đóng
+  let sx=null, sy=0, mode="";
+  addEventListener("touchstart", e=>{
+    const t=e.touches[0]; const open=$("drawer").classList.contains("open");
+    if(!$("app").hidden && $("sheet").hidden && (open || t.clientX<28)){ sx=t.clientX; sy=t.clientY; mode=open?"close":"open"; } else sx=null;
+  }, {passive:true});
+  addEventListener("touchmove", e=>{
+    if(sx==null) return; const t=e.touches[0], dx=t.clientX-sx, dy=Math.abs(t.clientY-sy);
+    if(dy>40 && dy>Math.abs(dx)){ sx=null; return; }
+    if(mode==="open" && dx>50){ sx=null; openDrawer(); }
+    else if(mode==="close" && dx<-50){ sx=null; closeDrawer(); }
+  }, {passive:true});
+  addEventListener("touchend", ()=>{ sx=null; }, {passive:true});
+})();
 $("due").addEventListener("click", ()=>{ filter="due"; render(); });
 $("list").addEventListener("click", e=>{ const r=e.target.closest(".row"); if(r) openCustomer(r.dataset.id); });
 $("fab").addEventListener("click", ()=>{ openId=null; mode="new"; openSheet(); renderForm(); $("sheet").scrollTop=0; });
