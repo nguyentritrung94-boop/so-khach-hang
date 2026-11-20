@@ -189,10 +189,14 @@ form.edit{display:flex;flex-direction:column;gap:12px}
 @media (prefers-reduced-motion:reduce){.drawer{transition:none}}
 
 /* máy tính khoản vay */
-.lv-row{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center}
-.lv-row label{font-size:14px;color:var(--muted)}
-.lv-row output{font-size:15px;font-weight:700;font-variant-numeric:tabular-nums}
-.lv-row input{grid-column:1/-1;width:100%;accent-color:var(--accent);height:28px}
+.lv-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.lv-row{display:flex;flex-direction:column;gap:4px;min-width:0}
+.lv-row.wide{grid-column:1/-1}
+.lv-row label{font-size:13px;color:var(--muted);font-weight:500}
+.lv-box{display:flex;align-items:center;border:1px solid var(--line);border-radius:10px;background:var(--bg);padding:0 12px}
+.lv-box:focus-within{border-color:var(--accent);outline:2px solid var(--accent-soft)}
+.lv-box input{flex:1;min-width:0;border:0;background:none;padding:11px 0;font-size:18px;font-weight:700;font-variant-numeric:tabular-nums;outline:none;-webkit-appearance:none}
+.lv-box span{font-size:14px;color:var(--muted);font-weight:500;margin-left:6px;white-space:nowrap}
 .lv-msg{background:var(--bg);border-radius:12px;padding:12px;font-size:14px;white-space:pre-line;line-height:1.55}
 /* thống kê */
 .stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
@@ -670,32 +674,34 @@ function loanCalc(){
   return {P, own:L.price*1e9-P, first, after, totI, inc:Math.max(first,after)/0.5};
 }
 function loanText(c){
-  const x=loanCalc(), way=L.method==="dec"?"dư nợ giảm dần":"trả đều hằng tháng";
+  const x=loanCalc(), way=L.method==="dec"?"tính lãi theo dư nợ giảm dần":"trả đều hằng tháng";
   const who = c ? (c.name+": c") : "C";
-  return `${who}ăn giá ${vn(L.price)} tỷ, chuẩn bị vốn ${money(x.own)}, vay ${L.ltv}% (${money(x.P)}) trong ${L.yrs} năm, trả ${way}.\n`+
+  return `${who}ăn giá ${vn(L.price)} tỷ, chuẩn bị vốn ${money(x.own)}, vay ${L.ltv}% (${money(x.P)}) trong ${L.yrs} năm, ${way}.\n`+
     `• Tháng đầu: khoảng ${money(x.first)}\n`+
     (L.m1 ? `• ${L.m1} tháng đầu lãi ${vn(L.r1)}%, sau đó ${vn(L.r2)}%: tháng đầu sau ưu đãi khoảng ${money(x.after)}\n` : `• Lãi suất ${vn(L.r2)}%/năm\n`)+
     (L.g ? `• Ân hạn gốc ${L.g} tháng đầu (chỉ trả lãi)\n` : "")+
     `Số liệu tham khảo, ngân hàng sẽ báo chính xác khi duyệt hồ sơ.`;
 }
 const LOAN_FIELDS=[
-  {k:"price",t:"Giá căn",min:3,max:80,step:0.5,f:v=>vn(v)+" tỷ"},
-  {k:"ltv",t:"Vay ngân hàng",min:0,max:80,step:5,f:v=>v+"%"},
-  {k:"yrs",t:"Thời hạn vay",min:5,max:35,step:1,f:v=>v+" năm"},
-  {k:"r1",t:"Lãi ưu đãi (%/năm)",min:0,max:12,step:0.1,f:v=>vn(v)+"%"},
-  {k:"m1",t:"Thời gian ưu đãi",min:0,max:60,step:6,f:v=>v+" tháng"},
-  {k:"r2",t:"Lãi sau ưu đãi (%/năm)",min:5,max:16,step:0.1,f:v=>vn(v)+"%"},
-  {k:"g",t:"Ân hạn gốc",min:0,max:36,step:6,f:v=>v+" tháng"}];
+  {k:"price",t:"Giá căn",u:"tỷ",wide:1,dec:1},
+  {k:"ltv",t:"Vay ngân hàng",u:"%"},
+  {k:"yrs",t:"Thời hạn vay",u:"năm"},
+  {k:"r1",t:"Lãi ưu đãi",u:"%/năm",dec:1},
+  {k:"m1",t:"Thời gian ưu đãi",u:"tháng"},
+  {k:"r2",t:"Lãi sau ưu đãi",u:"%/năm",dec:1},
+  {k:"g",t:"Ân hạn gốc",u:"tháng"}];
+const LIMITS={price:[0,1000],ltv:[0,100],yrs:[1,40],r1:[0,30],m1:[0,480],r2:[0,30],g:[0,480]};
+const numIn = s => { const v=parseFloat(String(s).replace(/\s/g,"").replace(",",".")); return isFinite(v)?v:0; };
 function openLoan(id){
   stopMic(); loanFor=id||null; mode="loan"; openSheet();
-  const c=id?customers[id]:null; const b=c&&budgetRange(c.budget); if(b) L.price=Math.min(80,Math.max(3,b[1]));
+  const c=id?customers[id]:null; const b=c&&budgetRange(c.budget); L.price = b ? b[1] : (L.price>0 ? L.price : LOAN_DEF.price);
   $("sheetBody").innerHTML=`
     <div class="sh-head"><h2>Tính khoản vay${c?`<br><span style="font-size:14px;font-weight:500;color:var(--muted)">${esc(c.name)}</span>`:""}</h2><button class="x" type="button" data-act="${c?"loanback":"close"}" aria-label="Đóng">×</button></div>
     <div class="seg" style="grid-template-columns:1fr 1fr" role="group" aria-label="Cách trả">
       <button type="button" class="none" data-lmethod="dec" aria-pressed="${L.method==="dec"}">Dư nợ giảm dần</button>
       <button type="button" class="none" data-lmethod="eq" aria-pressed="${L.method==="eq"}">Trả đều hằng tháng</button></div>
-    ${LOAN_FIELDS.map(f=>`<div class="lv-row"><label for="lv-${f.k}">${f.t}</label><output id="lvo-${f.k}">${f.f(L[f.k])}</output>
-      <input type="range" id="lv-${f.k}" data-lv="${f.k}" min="${f.min}" max="${f.max}" step="${f.step}" value="${L[f.k]}"></div>`).join("")}
+    <div class="lv-grid">${LOAN_FIELDS.map(f=>`<div class="lv-row${f.wide?" wide":""}"><label for="lv-${f.k}">${f.t}</label>
+      <div class="lv-box"><input id="lv-${f.k}" data-lv="${f.k}" type="text" inputmode="${f.dec?"decimal":"numeric"}" autocomplete="off" value="${vn(L[f.k],2)}"><span>${f.u}</span></div></div>`).join("")}</div>
     <div class="stats-grid" id="lvRes"></div>
     <div><span class="label">Tin nhắn gửi khách</span><div class="lv-msg" id="lvMsg" style="margin-top:6px"></div></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -710,8 +716,7 @@ function loanUpdate(){
   $("lvRes").innerHTML=[["Vốn tự có",money(x.own)],["Số tiền vay",money(x.P)],["Tháng đầu trả",money(x.first)],["Tháng đầu sau ưu đãi",money(x.after)],["Tổng lãi cả kỳ",money(x.totI)],["Thu nhập nên có",money(x.inc)+"/th"]]
     .map(([k,v])=>`<div class="stat"><div class="v" style="font-size:21px">${v}</div><div class="k">${k}</div></div>`).join("");
   $("lvMsg").textContent=loanText(c);
-  LOAN_FIELDS.forEach(f=>{ const o=$("lvo-"+f.k); if(o) o.textContent=f.f(L[f.k]); });
-  ls.set("skh-loan",{...L, price:undefined});
+  const {price, ...keep}=L; ls.set("skh-loan",keep);
 }
 
 function openCustomer(id){ stopMic(); openId=id; mode="view"; confirmDel=false; renderDetail.last=null; openSheet(); renderDetail(); $("sheet").scrollTop=0; }
@@ -776,7 +781,8 @@ document.addEventListener("keydown", e=>{ if(e.key==="Escape"){ if(!$("sheet").h
 $("sheetBody").addEventListener("keydown", e=>{ if(e.target.id==="f-tag" && e.key==="Enter"){ e.preventDefault(); addTagFromInput(); } });
 $("sheetBody").addEventListener("input", e=>{
   if(e.target.id==="f-phone") checkDup();
-  const lv=e.target.dataset && e.target.dataset.lv; if(lv){ L[lv]=+e.target.value; loanUpdate(); }
+  const lv=e.target.dataset && e.target.dataset.lv;
+  if(lv){ const [lo,hi]=LIMITS[lv]; L[lv]=Math.min(hi,Math.max(lo,numIn(e.target.value))); loanUpdate(); }
 });
 $("loanBtn").addEventListener("click", ()=>openLoan(null));
 $("sheetBody").addEventListener("change", e=>{
